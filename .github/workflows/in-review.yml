@@ -18,24 +18,22 @@ jobs:
         with:
           script: |
             // 1️⃣ Obtener Projects y fields
-            const projectsData = await github.graphql(`
-              query($owner: String!, $repo: String!) {
-                repository(owner: $owner, name: $repo) {
-                  projectsV2(first: 10) {
-                    nodes {
-                      id
-                      name
-                      fields(first: 20) {
-                        nodes {
-                          __typename
-                          ... on ProjectV2FieldCommon { id name }
-                          ... on ProjectV2SingleSelectField { id name }
-                        }
+            query($owner: String!, $repo: String!) {
+              repository(owner: $owner, name: $repo) {
+                projectsV2(first: 10) {
+                  nodes {
+                    id
+                    fields(first: 20) {
+                      nodes {
+                        __typename
+                        ... on ProjectV2FieldCommon { id name }
+                        ... on ProjectV2SingleSelectField { id name }
                       }
                     }
                   }
                 }
               }
+            }
             `, { owner: context.repo.owner, repo: context.repo.repo });
 
             const project = projectsData.repository.projectsV2.nodes[0];
