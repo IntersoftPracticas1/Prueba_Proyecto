@@ -18,7 +18,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // 1️⃣ Obtener Project y fields
+            // Obtener Project y fields
             const projectsData = await github.graphql(`
               query($owner: String!, $repo: String!) {
                 repository(owner: $owner, name: $repo) {
@@ -44,8 +44,8 @@ jobs:
             const statusField = project.fields.nodes.find(f => f.__typename === "ProjectV2SingleSelectField" && f.name.toLowerCase() === "status");
             if (!statusField) return;
 
-            // 2️⃣ Obtener opciones del campo Status
-            const fieldData = await github.graphql(`
+            // Obtener options de Status
+            const fieldOptionsData = await github.graphql(`
               query($fieldId: ID!) {
                 node(id: $fieldId) {
                   ... on ProjectV2SingleSelectField {
@@ -55,24 +55,26 @@ jobs:
               }
             `, { fieldId: statusField.id });
 
-            const inProgressOption = fieldData.node.options.find(o => o.name.toLowerCase() === "in progress");
+            const inProgressOption = fieldOptionsData.node.options.find(o => o.name.toLowerCase() === "in progress");
             if (!inProgressOption) return;
 
-            // 3️⃣ Mover issues vinculados al PR
+            // Mover issues vinculados al PR
             const prNodeId = context.payload.pull_request.node_id;
-            const data = await github.graphql(`query { node(id: "${prNodeId}") { ... on PullRequest { closingIssuesReferences(first: 10) { nodes { id } } } } }`);
+            const prData = await github.graphql(`query { node(id: "${prNodeId}") { ... on PullRequest { closingIssuesReferences(first: 10) { nodes { id } } } } }`);
 
-            const issues = data.node.closingIssuesReferences.nodes;
-            for (const issue of issues) {
-              const items = await github.graphql(`query { node(id: "${issue.id}") { ... on Issue { projectItems(first:10) { nodes { id } } } } }`);
-              const itemId = items.node.projectItems.nodes[0]?.id;
+            for (const issue of prData.node.closingIssuesReferences.nodes) {
+              const itemData = await github.graphql(`query { node(id: "${issue.id}") { ... on Issue { projectItems(first:10) { nodes { id } } } } }`);
+              const itemId = itemData.node.projectItems.nodes[0]?.id;
               if (!itemId) continue;
-              await github.graphql(`mutation {
-                updateProjectV2ItemFieldValue(input: {
-                  projectId: "${project.id}",
-                  itemId: "${itemId}",
-                  fieldId: "${statusField.id}",
-                  value: { singleSelectOptionId: "${inProgressOption.id}" }
-                }) { projectV2Item { id } }
-              }`);
+
+              await github.graphql(`
+                mutation {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: "${project.id}",
+                    itemId: "${itemId}",
+                    fieldId: "${statusField.id}",
+                    value: { singleSelectOptionId: "${inProgressOption.id}" }
+                  }) { projectV2Item { id } }
+                }
+              `);
             }
