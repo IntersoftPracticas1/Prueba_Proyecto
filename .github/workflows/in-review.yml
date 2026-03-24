@@ -43,8 +43,8 @@ jobs:
             const statusField = project.fields.nodes.find(f => f.__typename === "ProjectV2SingleSelectField" && f.name.toLowerCase() === "status");
             if (!statusField) return;
 
-            // 2️⃣ Obtener opciones del campo Status
-            const fieldData = await github.graphql(`
+            // 2️⃣ Obtener options de Status (segunda query)
+            const fieldOptionsData = await github.graphql(`
               query($fieldId: ID!) {
                 node(id: $fieldId) {
                   ... on ProjectV2SingleSelectField {
@@ -54,26 +54,28 @@ jobs:
               }
             `, { fieldId: statusField.id });
 
-            const inReviewOption = fieldData.node.options.find(o => o.name.toLowerCase() === "in review");
+            const inReviewOption = fieldOptionsData.node.options.find(o => o.name.toLowerCase() === "in review");
             if (!inReviewOption) return;
 
             // 3️⃣ Mover issues vinculados al PR
             const prNodeId = context.payload.pull_request.node_id;
-            const data = await github.graphql(`
+            const prData = await github.graphql(`
               query { node(id: "${prNodeId}") { ... on PullRequest { closingIssuesReferences(first: 10) { nodes { id } } } } }
             `);
 
-            const issues = data.node.closingIssuesReferences.nodes;
-            for (const issue of issues) {
-              const items = await github.graphql(`query { node(id: "${issue.id}") { ... on Issue { projectItems(first:10) { nodes { id } } } } }`);
-              const itemId = items.node.projectItems.nodes[0]?.id;
+            for (const issue of prData.node.closingIssuesReferences.nodes) {
+              const itemData = await github.graphql(`query { node(id: "${issue.id}") { ... on Issue { projectItems(first:10) { nodes { id } } } } }`);
+              const itemId = itemData.node.projectItems.nodes[0]?.id;
               if (!itemId) continue;
-              await github.graphql(`mutation {
-                updateProjectV2ItemFieldValue(input: {
-                  projectId: "${project.id}",
-                  itemId: "${itemId}",
-                  fieldId: "${statusField.id}",
-                  value: { singleSelectOptionId: "${inReviewOption.id}" }
-                }) { projectV2Item { id } }
-              }`);
+
+              await github.graphql(`
+                mutation {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: "${project.id}",
+                    itemId: "${itemId}",
+                    fieldId: "${statusField.id}",
+                    value: { singleSelectOptionId: "${inReviewOption.id}" }
+                  }) { projectV2Item { id } }
+                }
+              `);
             }
