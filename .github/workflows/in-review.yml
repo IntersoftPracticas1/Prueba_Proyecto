@@ -18,22 +18,23 @@ jobs:
         with:
           script: |
             // 1️⃣ Obtener Projects y fields
-            query($owner: String!, $repo: String!) {
-              repository(owner: $owner, name: $repo) {
-                projectsV2(first: 10) {
-                  nodes {
-                    id
-                    fields(first: 20) {
-                      nodes {
-                        __typename
-                        ... on ProjectV2FieldCommon { id name }
-                        ... on ProjectV2SingleSelectField { id name }
+            const projectsData = await github.graphql(`
+              query($owner: String!, $repo: String!) {
+                repository(owner: $owner, name: $repo) {
+                  projectsV2(first: 10) {
+                    nodes {
+                      id
+                      fields(first: 20) {
+                        nodes {
+                          __typename
+                          ... on ProjectV2FieldCommon { id name }
+                          ... on ProjectV2SingleSelectField { id name }
+                        }
                       }
                     }
                   }
                 }
               }
-            }
             `, { owner: context.repo.owner, repo: context.repo.repo });
 
             const project = projectsData.repository.projectsV2.nodes[0];
@@ -43,7 +44,7 @@ jobs:
             }
 
             const statusField = project.fields.nodes.find(
-              f => f.__typename === "ProjectV2SingleSelectField" && f.name.toLowerCase() === "status"
+              f => f.__typename === "ProjectV2SingleSelectField" && f.name === "Status"
             );
             if (!statusField) {
               console.log("No Status field found in Project");
@@ -62,10 +63,11 @@ jobs:
             `, { fieldId: statusField.id });
 
             const inReviewOption = fieldOptionsData.node.options.find(
-              o => o.name.toLowerCase() === "in review"
+              o => o.name === "In review"
             );
             if (!inReviewOption) {
-              console.log("No 'In Review' option found in Status field");
+              console.log("No 'In review' option found in Status field");
+              console.log("Opciones:", fieldOptionsData.node.options);
               return;
             }
 
@@ -88,7 +90,6 @@ jobs:
             `);
 
             for (const issue of prData.node.closingIssuesReferences.nodes) {
-              // Obtener item del issue en el Project
               const itemData = await github.graphql(`
                 query {
                   node(id: "${issue.id}") {
@@ -110,7 +111,6 @@ jobs:
 
               console.log(`Updating Issue ${issue.id}, ItemId: ${itemId}`);
 
-              // 4️⃣ Actualizar Status a In Review
               await github.graphql(`
                 mutation {
                   updateProjectV2ItemFieldValue(input: {
@@ -123,5 +123,6 @@ jobs:
                   }
                 }
               `);
-              console.log(`Issue ${issue.id} movido a 'In Review'`);
+
+              console.log(`Issue ${issue.id} movido a 'In review'`);
             }
