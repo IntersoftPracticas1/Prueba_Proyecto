@@ -62,9 +62,8 @@ jobs:
               }
             `, { fieldId: statusField.id });
 
-            const inReviewOption = fieldOptionsData.node.options.find(
-              o => o.name.toLowerCase() === "in review"
-            );
+            const inReviewOption = fieldOptionsData.node.options.find(o => o.name === "In review");
+
             if (!inReviewOption) return;
 
             // 3️⃣ Obtener issues vinculados al PR
