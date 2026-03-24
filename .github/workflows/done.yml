@@ -1,0 +1,85 @@
+name: Move issues to Done
+
+on:
+  pull_request:
+    types: [closed]
+  issues:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Move issues to Done
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 1️⃣ Obtener Project y fields
+            const projectsData = await github.graphql(`
+              query($owner: String!, $repo: String!) {
+                repository(owner: $owner, name: $repo) {
+                  projectsV2(first: 10) {
+                    nodes {
+                      id
+                      fields(first: 20) {
+                        nodes {
+                          id
+                          name
+                          __typename
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `, { owner: context.repo.owner, repo: context.repo.repo });
+
+            const project = projectsData.repository.projectsV2.nodes[0];
+            if (!project) return;
+
+            const statusField = project.fields.nodes.find(f => f.__typename === "ProjectV2SingleSelectField" && f.name.toLowerCase() === "status");
+            if (!statusField) return;
+
+            // 2️⃣ Obtener opciones del campo Status
+            const fieldData = await github.graphql(`
+              query($fieldId: ID!) {
+                node(id: $fieldId) {
+                  ... on ProjectV2SingleSelectField {
+                    options { id name }
+                  }
+                }
+              }
+            `, { fieldId: statusField.id });
+
+            const doneOption = fieldData.node.options.find(o => o.name.toLowerCase() === "done");
+            if (!doneOption) return;
+
+            // 3️⃣ Obtener issues a mover
+            let issueIds = [];
+            if (context.eventName === "pull_request" && context.payload.pull_request.merged) {
+              const prData = await github.graphql(`query { node(id: "${context.payload.pull_request.node_id}") { ... on PullRequest { closingIssuesReferences(first:10) { nodes { id } } } } }`);
+              issueIds = prData.node.closingIssuesReferences.nodes.map(i => i.id);
+            }
+            if (context.eventName === "issues") {
+              issueIds = [context.payload.issue.node_id];
+            }
+
+            // 4️⃣ Mover issues a Done
+            for (const issueId of issueIds) {
+              const items = await github.graphql(`query { node(id: "${issueId}") { ... on Issue { projectItems(first:10) { nodes { id } } } } }`);
+              const itemId = items.node.projectItems.nodes[0]?.id;
+              if (!itemId) continue;
+              await github.graphql(`mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: "${project.id}",
+                  itemId: "${itemId}",
+                  fieldId: "${statusField.id}",
+                  value: { singleSelectOptionId: "${doneOption.id}" }
+                }) { projectV2Item { id } }
+              }`);
+            }
