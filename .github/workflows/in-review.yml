@@ -26,9 +26,15 @@ jobs:
                       id
                       fields(first: 20) {
                         nodes {
-                          id
-                          name
                           __typename
+                          ... on ProjectV2FieldCommon {
+                            id
+                            name
+                          }
+                          ... on ProjectV2SingleSelectField {
+                            id
+                            name
+                          }
                         }
                       }
                     }
@@ -40,10 +46,12 @@ jobs:
             const project = projectsData.repository.projectsV2.nodes[0];
             if (!project) return;
 
-            const statusField = project.fields.nodes.find(f => f.__typename === "ProjectV2SingleSelectField" && f.name.toLowerCase() === "status");
+            const statusField = project.fields.nodes.find(
+              f => f.__typename === "ProjectV2SingleSelectField" && f.name.toLowerCase() === "status"
+            );
             if (!statusField) return;
 
-            // 2️⃣ Obtener options de Status (segunda query)
+            // 2️⃣ Obtener opciones del campo Status
             const fieldOptionsData = await github.graphql(`
               query($fieldId: ID!) {
                 node(id: $fieldId) {
@@ -54,17 +62,38 @@ jobs:
               }
             `, { fieldId: statusField.id });
 
-            const inReviewOption = fieldOptionsData.node.options.find(o => o.name.toLowerCase() === "in review");
+            const inReviewOption = fieldOptionsData.node.options.find(
+              o => o.name.toLowerCase() === "in review"
+            );
             if (!inReviewOption) return;
 
-            // 3️⃣ Mover issues vinculados al PR
+            // 3️⃣ Obtener issues vinculados al PR
             const prNodeId = context.payload.pull_request.node_id;
             const prData = await github.graphql(`
-              query { node(id: "${prNodeId}") { ... on PullRequest { closingIssuesReferences(first: 10) { nodes { id } } } } }
+              query {
+                node(id: "${prNodeId}") {
+                  ... on PullRequest {
+                    closingIssuesReferences(first: 10) {
+                      nodes { id }
+                    }
+                  }
+                }
+              }
             `);
 
             for (const issue of prData.node.closingIssuesReferences.nodes) {
-              const itemData = await github.graphql(`query { node(id: "${issue.id}") { ... on Issue { projectItems(first:10) { nodes { id } } } } }`);
+              const itemData = await github.graphql(`
+                query {
+                  node(id: "${issue.id}") {
+                    ... on Issue {
+                      projectItems(first:10) {
+                        nodes { id }
+                      }
+                    }
+                  }
+                }
+              `);
+
               const itemId = itemData.node.projectItems.nodes[0]?.id;
               if (!itemId) continue;
 
@@ -75,7 +104,9 @@ jobs:
                     itemId: "${itemId}",
                     fieldId: "${statusField.id}",
                     value: { singleSelectOptionId: "${inReviewOption.id}" }
-                  }) { projectV2Item { id } }
+                  }) {
+                    projectV2Item { id }
+                  }
                 }
               `);
             }
